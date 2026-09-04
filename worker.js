@@ -21,6 +21,7 @@ const GHOSTS = [
   'untertitel', 'sottotitoli', 'подписывайтесь',
 ];
 
+let lastTail = '';        // tail of the previous window's text, to trim the overlap seam
 let asr = null, asrId = null, asrDev = null;
 let mt = null, mtId = null, mtDead = false;
 
@@ -71,6 +72,21 @@ async function getMT(lang){
 
 const isGhost = (s) => { const t = s.toLowerCase(); return GHOSTS.some(g => t.includes(g)); };
 
+// Consecutive windows share 1.5 s of audio, so a window often reopens with words the previous
+// one already ended on. Drop that repeated prefix here, before translating, so the caption and
+// its English stay in step.
+const bare = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+function trimSeam(prevTail, text){
+  if (!prevTail) return text;
+  const P = prevTail.split(' ').filter(Boolean), C = text.split(' ').filter(Boolean);
+  for (let n = Math.min(10, P.length, C.length); n >= 2; n--){
+    let same = true;
+    for (let i = 0; i < n; i++) if (bare(P[P.length - n + i]) !== bare(C[i])){ same = false; break; }
+    if (same) return C.slice(n).join(' ');
+  }
+  return text;
+}
+
 // Whisper falls into phrase loops on music and crosstalk ("de la premiere video" x60).
 // Collapse any 1..6-word phrase repeated 3+ times, keeping one copy. Done on word arrays
 // rather than by regex because JS \w does not match accented letters.
@@ -96,6 +112,7 @@ function clean(s){
 self.onmessage = async ({ data: msg }) => {
   if (msg.type === 'init'){
     self.__gpu = msg.gpu;
+    lastTail = '';
     try {
       await getASR(msg.model);
       if (msg.translate) await getMT(msg.lang);
@@ -130,6 +147,12 @@ self.onmessage = async ({ data: msg }) => {
       if (text.split(' ').length > maxWords) continue;
       const [s, e] = c.timestamp || [0, null];
       cues.push({ start: t0 + (s ?? 0), end: t0 + (e ?? (s ?? 0) + 2), src: text, en: null });
+    }
+
+    if (cues.length){                                  // trim the seam against the last window
+      const first = trimSeam(lastTail, cues[0].src);
+      if (!first.trim()) cues.shift(); else cues[0].src = first;
+      if (cues.length) lastTail = cues[cues.length - 1].src;
     }
 
     if (translate && cues.length){

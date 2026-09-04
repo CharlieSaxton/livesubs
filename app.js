@@ -93,10 +93,22 @@ const fmt = (t) => {
   return `${String((s/60|0)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
 };
 
+// Windows overlap by 1.5 s, so the same words can arrive twice. Discard a cue only when it
+// adds nothing new: judging by start time alone silently drops speech that straddles the seam.
+const words = (s) => new Set(s.toLowerCase().replace(/[^\p{L}\p{N} ]/gu,'').split(' ').filter(Boolean));
+function overlaps(a, b){
+  const A = words(a), B = words(b);
+  if (!A.size || !B.size) return 0;
+  let hit = 0; for (const w of A) if (B.has(w)) hit++;
+  return hit / Math.min(A.size, B.size);
+}
+
 function addCues(list){
   let added = false;
   for (const c of list){
-    if (c.start < lastEnd - 0.35) continue;      // overlap from the previous window
+    if (c.end <= lastEnd + 0.3) continue;                       // wholly inside what we have
+    if (cues.slice(-2).some(p => overlaps(p.src, c.src) > 0.8)) continue;   // same words again
+    if (c.start < lastEnd) c.start = lastEnd;                   // trim the seam, keep new words
     cues.push(c);
     lastEnd = Math.max(lastEnd, c.end);
     added = true;
