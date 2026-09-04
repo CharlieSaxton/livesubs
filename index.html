@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Livesubs — live subtitles for any video</title>
+<meta name="description" content="Paste a video link, get live translated subtitles. Runs entirely in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <span class="name">Livesubs</span>
+  </div>
+  <div class="bar-right">
+    <span id="engine" class="pill" title="Compute backend">checking…</span>
+    <a class="ghost" href="https://github.com/CharlieSaxton/livesubs" target="_blank" rel="noopener">Source</a>
+  </div>
+</header>
+
+<main>
+  <!-- ---------- landing / url entry ---------- -->
+  <section id="landing" class="landing">
+    <h1>Subtitles for any video,<br><em>in your language</em>.</h1>
+    <p class="sub">Paste a link. Everything runs on your machine — no account, no API key, no cost.</p>
+
+    <form id="urlForm" class="urlbar" autocomplete="off">
+      <input id="url" type="url" inputmode="url" spellcheck="false"
+             placeholder="Paste a YouTube link, or a direct .mp4 / .m3u8 URL" required>
+      <button type="submit">Load</button>
+    </form>
+
+    <div class="reqs">
+      <span class="req" id="reqBrowser">Chrome or Edge, desktop</span>
+      <span class="req" id="reqGpu">WebGPU</span>
+      <span class="req">~90 MB model, cached after first run</span>
+    </div>
+  </section>
+
+  <!-- ---------- player + transcript ---------- -->
+  <section id="stage" class="stage" hidden>
+    <div class="left">
+      <div class="frame">
+        <div id="playerHost" class="playerHost"></div>
+        <div class="captions" id="captions">
+          <div class="cap-primary" id="capPrimary"></div>
+          <div class="cap-secondary" id="capSecondary"></div>
+        </div>
+      </div>
+
+      <div class="deck">
+        <button id="startBtn" class="primary">Start captions</button>
+        <button id="stopBtn" class="secondary" hidden>Stop</button>
+
+        <label class="field">
+          <span>Spoken</span>
+          <select id="srcLang">
+            <option value="auto">Auto-detect</option>
+            <option value="fr" selected>French</option>
+            <option value="es">Spanish</option><option value="de">German</option>
+            <option value="it">Italian</option><option value="pt">Portuguese</option>
+            <option value="nl">Dutch</option><option value="ru">Russian</option>
+            <option value="ja">Japanese</option><option value="zh">Chinese</option>
+            <option value="ko">Korean</option><option value="ar">Arabic</option>
+            <option value="tr">Turkish</option><option value="pl">Polish</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Show</span>
+          <select id="showMode">
+            <option value="both" selected>English + original</option>
+            <option value="en">English only</option>
+            <option value="src">Original only</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Model</span>
+          <select id="model">
+            <option value="onnx-community/whisper-base" selected>Base — fast</option>
+            <option value="onnx-community/whisper-small">Small — accurate</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="statusline">
+        <span id="status" class="status">Idle</span>
+        <div class="progress" id="progressWrap" hidden><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+
+      <p class="hint" id="hint">
+        When you press Start, Chrome asks what to share — pick <b>This tab</b> and make sure
+        <b>Also share tab audio</b> is ticked. Nothing leaves your computer.
+      </p>
+    </div>
+
+    <aside class="right">
+      <div class="panelhead">
+        <h2>Transcript</h2>
+        <div class="tools">
+          <button id="srtBtn" class="ghost" title="Download .srt subtitles">SRT</button>
+          <button id="txtBtn" class="ghost" title="Download plain text">TXT</button>
+          <button id="clearBtn" class="ghost" title="Clear transcript">Clear</button>
+        </div>
+      </div>
+      <ol id="lines" class="lines"></ol>
+      <div id="empty" class="empty">
+        <p>Lines appear here as they are heard, each stamped to the moment it was said.</p>
+        <p>Rewind and they re-sync exactly — the first pass is a few seconds behind, the second is perfect.</p>
+      </div>
+    </aside>
+  </section>
+</main>
+
+<script src="./app.js" type="module"></script>
+</body>
+</html>
