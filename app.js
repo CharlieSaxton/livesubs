@@ -1,13 +1,32 @@
-const SR = 16000;                 // Whisper's required sample rate
-const WIN = 8.0  * SR;            // audio window handed to the model
-const STRIDE = 6.5 * SR;          // hop between windows (1.5 s of shared context)
+const SR = 16000;                 // what Whisper requires
+const WIN_S = 8.0;                // seconds of audio per window
+const STRIDE_S = 6.5;             // hop between windows (1.5 s of shared context)
 const SILENCE = 0.0016;           // RMS floor; below this we skip the model entirely
+
+// Safari ignores { sampleRate: 16000 } and hands back 44100 or 48000, so nothing may assume
+// the rate. Audio is buffered at whatever the device gives and resampled just before the model.
+let rate = SR, WIN = WIN_S * SR, STRIDE = STRIDE_S * SR;
+
+// Box-averaged decimation. Plain interpolation aliases badly at 48k->16k, which Whisper hears
+// as noise; averaging across the window is a crude but effective anti-alias filter.
+function to16k(buf, from){
+  if (from === SR) return buf;
+  const ratio = from / SR, n = Math.floor(buf.length / ratio);
+  const out = new Float32Array(n), half = Math.max(1, Math.round(ratio / 2));
+  for (let i = 0; i < n; i++){
+    const c = Math.round(i * ratio);
+    let sum = 0, k = 0;
+    for (let j = Math.max(0, c - half); j <= Math.min(buf.length - 1, c + half); j++){ sum += buf[j]; k++; }
+    out[i] = sum / k;
+  }
+  return out;
+}
 
 const $ = (id) => document.getElementById(id);
 const ui = {};
 ['landing','stage','urlForm','url','playerHost','capPrimary','capSecondary','startBtn','stopBtn',
  'srcLang','showMode','model','status','progressWrap','progressFill','lines','empty','engine',
- 'srtBtn','txtBtn','clearBtn','reqBrowser','reqGpu','hint']
+ 'srtBtn','txtBtn','clearBtn','reqBrowser','reqGpu','hint','source']
  .forEach(k => ui[k] = $(k));
 
 /* ---------------------------------------------------------------- capability */
@@ -18,8 +37,21 @@ const isChromium = !!window.chrome && !/firefox/i.test(navigator.userAgent);
 ui.engine.textContent = hasGPU ? 'WebGPU' : 'CPU only';
 ui.engine.className = 'pill ' + (hasGPU ? 'ok' : 'warn');
 if (!hasGPU) ui.reqGpu.classList.add('bad'), ui.reqGpu.textContent = 'No WebGPU — will be slow';
-if (!isChromium || !canGrab) ui.reqBrowser.classList.add('bad'),
-  ui.reqBrowser.textContent = 'Tab audio needs Chrome or Edge';
+const canTab = canGrab && isChromium;
+if (!canTab){
+  ui.reqBrowser.classList.add('bad');
+  ui.reqBrowser.textContent = 'No tab audio here — use Microphone';
+}
+
+const HINTS = {
+  tab: 'Chrome will ask what to share — pick <b>This tab</b> and make sure <b>Also share tab audio</b> is ticked. Nothing leaves your computer.',
+  mic: 'The page listens through the microphone, so play the video out loud — on this device or another one. Keep the volume up and the room quiet. Nothing leaves your device.',
+};
+function syncSource(){
+  ui.hint.innerHTML = HINTS[ui.source.value];
+  const tabOpt = ui.source.querySelector('option[value="tab"]');
+  if (tabOpt) tabOpt.disabled = !canTab;
+}
 
 /* ---------------------------------------------------------------- player */
 let player = null;
@@ -216,7 +248,7 @@ function sampleToVideo(abs){
     const mid = (lo + hi) >> 1;
     if (sync[mid].s <= abs){ best = sync[mid]; lo = mid + 1; } else hi = mid - 1;
   }
-  return Math.max(0, best.v + (abs - best.s) / SR);
+  return Math.max(0, best.v + (abs - best.s) / rate);
 }
 
 function pump(){
@@ -231,7 +263,7 @@ function pump(){
   if (total < nextStart + WIN) return;
 
   const from = nextStart, to = from + WIN;
-  const audio = readRange(from, to);
+  const audio = to16k(readRange(from, to), rate);
   nextStart += STRIDE;
   trim(nextStart);
 
@@ -251,31 +283,50 @@ function pump(){
 
 async function start(){
   ui.startBtn.disabled = true;
+  const src = ui.source.value;
+
   try{
-    stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false },
-    });
+    if (src === 'tab'){
+      if (!navigator.mediaDevices?.getDisplayMedia)
+        throw new Error('This browser cannot capture tab audio. Switch "Audio from" to Microphone.');
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false },
+      });
+      stream.getVideoTracks().forEach(t => t.stop());
+      if (!stream.getAudioTracks().length){
+        stream.getTracks().forEach(t => t.stop());
+        throw new Error('Shared without audio — reshare and tick "Also share tab audio".');
+      }
+    } else {
+      // Echo cancellation and noise suppression would strip out the very thing we want to
+      // hear: sound coming from a speaker. Both off; leave gain control on for quiet rooms.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:true },
+      });
+    }
   }catch(e){
     ui.startBtn.disabled = false;
-    return say('Screen share cancelled.', 'err');
+    const m = String(e?.message || e);
+    if (/denied|NotAllowed/i.test(m))
+      return say(src === 'mic' ? 'Microphone permission denied.' : 'Screen share cancelled.', 'err');
+    return say(m, 'err');
   }
-  stream.getVideoTracks().forEach(t => t.stop());
-  if (!stream.getAudioTracks().length){
-    stream.getTracks().forEach(t => t.stop());
-    ui.startBtn.disabled = false;
-    return say('No audio captured — reshare and tick "Also share tab audio".', 'err');
-  }
+
   stream.getAudioTracks()[0].onended = stop;
 
   ctx = new AudioContext({ sampleRate: SR });
+  await ctx.resume();                                  // iOS starts contexts suspended
+  rate   = ctx.sampleRate;                             // Safari may hand back 44100/48000
+  WIN    = Math.round(WIN_S * rate);
+  STRIDE = Math.round(STRIDE_S * rate);
+
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], {type:'text/javascript'})));
   node = new AudioWorkletNode(ctx, 'cap');
-  node.port.onmessage = (e) => {
-    chunks.push(e.data); total += e.data.length; pump();
-  };
+  node.port.onmessage = (e) => { chunks.push(e.data); total += e.data.length; pump(); };
+
   const sink = ctx.createGain();
-  sink.gain.value = 0;                     // silent, but the graph must reach the destination
+  sink.gain.value = 0;                                 // silent, but the graph must reach output
   ctx.createMediaStreamSource(stream).connect(node);
   node.connect(sink); sink.connect(ctx.destination);
 
@@ -370,7 +421,9 @@ ui.urlForm.onsubmit = async (e) => {
 };
 ui.startBtn.onclick = start;
 ui.stopBtn.onclick = stop;
-if (!isChromium || !canGrab) ui.startBtn.title = 'Tab audio capture requires Chrome or Edge on desktop';
+ui.source.value = canTab ? 'tab' : 'mic';
+ui.source.onchange = syncSource;
+syncSource();
 
 // Deep link: ?v=<url> loads straight into the player.
 const pre = new URLSearchParams(location.search).get('v');

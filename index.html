@@ -27,7 +27,7 @@
   <!-- ---------- landing / url entry ---------- -->
   <section id="landing" class="landing">
     <h1>Subtitles for any video,<br><em>in your language</em>.</h1>
-    <p class="sub">Paste a link. Everything runs on your machine — no account, no API key, no cost.</p>
+    <p class="sub">Paste a link. Everything runs on your own device — no account, no API key, no cost.<br>On iPhone and iPad, choose <b>Microphone</b> and play the video out loud.</p>
 
     <form id="urlForm" class="urlbar" autocomplete="off">
       <input id="url" type="url" inputmode="url" spellcheck="false"
@@ -36,7 +36,7 @@
     </form>
 
     <div class="reqs">
-      <span class="req" id="reqBrowser">Chrome or Edge, desktop</span>
+      <span class="req" id="reqBrowser">Tab audio: Chrome or Edge desktop</span>
       <span class="req" id="reqGpu">WebGPU</span>
       <span class="req">~190 MB on first run, then cached</span>
     </div>
@@ -56,6 +56,14 @@
       <div class="deck">
         <button id="startBtn" class="primary">Start captions</button>
         <button id="stopBtn" class="secondary" hidden>Stop</button>
+
+        <label class="field">
+          <span>Audio from</span>
+          <select id="source">
+            <option value="tab">This tab</option>
+            <option value="mic">Microphone</option>
+          </select>
+        </label>
 
         <label class="field">
           <span>Spoken</span>
@@ -95,10 +103,7 @@
         <div class="progress" id="progressWrap" hidden><div class="progress-fill" id="progressFill"></div></div>
       </div>
 
-      <p class="hint" id="hint">
-        When you press Start, Chrome asks what to share — pick <b>This tab</b> and make sure
-        <b>Also share tab audio</b> is ticked. Nothing leaves your computer.
-      </p>
+      <p class="hint" id="hint"></p>
     </div>
 
     <aside class="right">
