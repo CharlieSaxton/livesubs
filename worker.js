@@ -71,10 +71,26 @@ async function getMT(lang){
 
 const isGhost = (s) => { const t = s.toLowerCase(); return GHOSTS.some(g => t.includes(g)); };
 
+// Whisper falls into phrase loops on music and crosstalk ("de la premiere video" x60).
+// Collapse any 1..6-word phrase repeated 3+ times, keeping one copy. Done on word arrays
+// rather than by regex because JS \w does not match accented letters.
+function collapse(words){
+  const w = words.slice();
+  for (let n = 1; n <= 6; n++){
+    for (let i = 0; i + n * 3 <= w.length; i++){
+      const key = w.slice(i, i + n).join(' ').toLowerCase();
+      let reps = 1;
+      while (i + n * (reps + 1) <= w.length &&
+             w.slice(i + n * reps, i + n * (reps + 1)).join(' ').toLowerCase() === key) reps++;
+      if (reps >= 3) w.splice(i + n, n * (reps - 1));
+    }
+  }
+  return w;
+}
+
 function clean(s){
-  let t = (s || '').replace(/\s+/g, ' ').trim();
-  t = t.replace(/\b(\S{1,24}?)(?:[ ,]+\1\b){2,}/gi, '$1');   // collapse Whisper's repetition loops
-  return t;
+  const t = (s || '').replace(/\s+/g, ' ').trim();
+  return collapse(t.split(' ').filter(Boolean)).join(' ');
 }
 
 self.onmessage = async ({ data: msg }) => {
@@ -99,6 +115,7 @@ self.onmessage = async ({ data: msg }) => {
       language: lang === 'auto' ? null : lang,
       task: 'transcribe',
       return_timestamps: true,
+      no_repeat_ngram_size: 6,     // stops runaway loops at the source (439 words -> 38 in testing)
     });
 
     const raw = out.chunks?.length
@@ -106,9 +123,11 @@ self.onmessage = async ({ data: msg }) => {
       : [{ timestamp:[0, audio.length / 16000], text: out.text }];
 
     const cues = [];
+    const maxWords = (audio.length / 16000) * 8;    // human speech peaks near 4 words/sec
     for (const c of raw){
       const text = clean(c.text);
       if (!text || text.length < 2 || isGhost(text)) continue;
+      if (text.split(' ').length > maxWords) continue;
       const [s, e] = c.timestamp || [0, null];
       cues.push({ start: t0 + (s ?? 0), end: t0 + (e ?? (s ?? 0) + 2), src: text, en: null });
     }
