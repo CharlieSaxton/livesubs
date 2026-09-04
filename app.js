@@ -291,6 +291,7 @@ function boot(){
     if (m.type === 'progress'){ bar(m.pct); if (m.pct >= 100) say('Warming up…'); }
     else if (m.type === 'status') say(m.text);
     else if (m.type === 'ready'){ ready = true; bar(null); say('Listening — captions appear a few seconds behind.', 'live'); pump(); }
+    else if (m.type === 'device'){ ui.engine.textContent = 'CPU only'; ui.engine.className = 'pill warn'; }
     else if (m.type === 'error'){ say('Model failed: ' + m.text, 'err'); bar(null); }
     else if (m.type === 'cues'){
       inFlight = false;

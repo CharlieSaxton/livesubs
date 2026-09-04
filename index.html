@@ -38,7 +38,7 @@
     <div class="reqs">
       <span class="req" id="reqBrowser">Chrome or Edge, desktop</span>
       <span class="req" id="reqGpu">WebGPU</span>
-      <span class="req">~90 MB model, cached after first run</span>
+      <span class="req">~190 MB on first run, then cached</span>
     </div>
   </section>
 
@@ -84,8 +84,8 @@
         <label class="field">
           <span>Model</span>
           <select id="model">
-            <option value="onnx-community/whisper-base" selected>Base — fast</option>
-            <option value="onnx-community/whisper-small">Small — accurate</option>
+            <option value="onnx-community/whisper-base" selected>Base — fast, 75 MB</option>
+            <option value="onnx-community/whisper-small">Small — accurate, 240 MB</option>
           </select>
         </label>
       </div>

@@ -1,0 +1,80 @@
+name: Build and deploy
+
+# Mirrors the model weights onto GitHub Pages. HuggingFace's CDN serves some regions
+# (New Zealand among them) at under 10 KB/s; GitHub's runners pull from it at full speed
+# and Pages then serves the browser at CDN speed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the app
+        run: |
+          mkdir -p _site
+          cp index.html app.js worker.js style.css _site/
+
+      - name: Mirror model weights
+        run: |
+          set -euo pipefail
+          fetch () {                       # fetch <repo> <file> <required:0|1>
+            local repo="$1" file="$2" req="$3"
+            local dest="_site/models/$repo/$file"
+            mkdir -p "$(dirname "$dest")"
+            local code
+            code=$(curl -sL --retry 6 --retry-all-errors --retry-delay 2 \
+                   -w '%{http_code}' -o "$dest" \
+                   "https://huggingface.co/$repo/resolve/main/$file")
+            if [ "$code" != "200" ]; then
+              rm -f "$dest"
+              if [ "$req" = "1" ]; then echo "::error::required $repo/$file -> HTTP $code"; exit 1; fi
+              echo "  skip $file (HTTP $code)"
+            else
+              printf '  %-46s %6.1f MB\n' "$file" "$(echo "scale=2; $(wc -c < "$dest")/1048576" | bc)"
+            fi
+          }
+
+          for repo in onnx-community/whisper-base onnx-community/whisper-small; do
+            echo "== $repo"
+            for f in config.json generation_config.json preprocessor_config.json \
+                     tokenizer.json tokenizer_config.json; do fetch "$repo" "$f" 0; done
+            fetch "$repo" onnx/encoder_model_quantized.onnx 1
+            fetch "$repo" onnx/decoder_model_merged_quantized.onnx 1
+          done
+
+          repo=Xenova/opus-mt-fr-en
+          echo "== $repo"
+          for f in config.json generation_config.json tokenizer.json tokenizer_config.json \
+                   source.spm target.spm vocab.json; do fetch "$repo" "$f" 0; done
+          fetch "$repo" onnx/encoder_model_quantized.onnx 1
+          fetch "$repo" onnx/decoder_model_merged_quantized.onnx 1
+
+          echo "total site size: $(du -sh _site | cut -f1)"
+
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

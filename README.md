@@ -13,8 +13,11 @@ no server, no account, no API key, no cost.
    GPU via WebGPU; a [Helsinki Opus-MT](https://huggingface.co/Xenova/opus-mt-fr-en) model
    translates each line into English.
 
-Model weights download once (~90 MB) from the Hugging Face CDN straight to your browser and are
-cached by the browser afterwards. Audio never leaves your machine.
+Model weights are served from this site itself, not from huggingface.co. HF's CDN delivers under
+10 KB/s to some regions (New Zealand included), which would make a first run take hours; a GitHub
+Actions job mirrors the weights at build time so the browser pulls them at CDN speed instead.
+First run downloads ~190 MB (Whisper base + the French translator) and the browser caches it.
+Audio never leaves your machine.
 
 ## Alignment
 
@@ -29,6 +32,6 @@ scrubbing re-syncs the subtitles exactly. Export as `.srt` when you're done.
 
 ## Languages
 
-French, Spanish, German, Italian, Russian, Chinese, Arabic and Dutch use dedicated translation
-models. Everything else falls back to a multilingual model, and if that fails, to Whisper's own
-translation task.
+French uses a dedicated Opus-MT model, which is markedly better than Whisper's own translation and
+is mirrored for speed. Every other language is translated by Whisper itself, which needs no extra
+download. Adding another dedicated pair is one line in `worker.js` plus one in the workflow.
